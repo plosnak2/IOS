@@ -1,0 +1,394 @@
+#!/bin/sh
+#Jakub Zaukolec IOS Projekt 1 VUT FIT
+
+set -u
+POSIXLY_CORRECT=yes
+#directories
+ND=0
+#files
+NF=0
+#current directory
+DIR=$PWD
+
+args=0
+all_args=$#
+
+#ignored files and dirs
+FILE_ERE=''
+
+#-i and -n switches
+ign=0
+nor=0
+
+#not using array because of dash
+size1=0   #<100 B
+size2=0   #<1 KiB = <1024 B
+size3=0   #<10 KiB = <10240 B
+size4=0   #<100 KiB = <102400 B
+size5=0   #<1 MiB = <1048576 B
+size6=0   #<10 MiB = <10485760 B
+size7=0   #<100 MiB = <104857600 B
+size8=0   #<1 GiB = <1073741824 B
+size9=0   #>=1 GiB
+
+#going through args and setting flags of -i and -n
+while getopts i:n o
+do
+    case "$o" in
+      i)
+          FILE_ERE="${OPTARG}"
+          args=$((args + 2))          #args=`expr $args + 2`
+          ign=1 ;;
+
+      n)
+          args=$((args + 1))
+          nor=1 ;;
+
+      *)
+          echo "you can use only -i or -n" >&2
+          exit 1
+            ;;
+    esac
+done
+
+#max 4 args ..-i, name of ignored file, -n, directory
+if [ $# -gt 4 ]
+  then
+    echo "Too many args" >&2
+    exit 1
+fi
+
+
+OPTIND=$((OPTIND - 1))
+shift "$OPTIND"
+
+#setting directory
+if [ $# -eq 1 ]
+then
+    DIR="$1"
+    args=$((args + 1))
+elif [ $# -eq 0 ]
+then
+    DIR=$PWD
+else
+    echo "Wrong arguments" >&2
+    exit 1
+fi
+
+#controlling number of arguments
+if [ "$args" -ne "$all_args" ]
+then
+    echo "Wrong arguments" >&2
+    exit 1
+fi
+
+#checking if directory exists
+if [ ! -d "$DIR" ]
+then
+    echo "Directory does not exist" >&2
+    exit 1
+fi
+
+#controlling that if -i is set then FILE_ERE cant be empty
+if [ $ign -eq 1 ]
+then
+  if [ -z "$FILE_ERE" ]
+  then
+    echo "You cant set -i without file name" >&2
+    exit 1
+  fi
+fi
+
+#file ere cant cover root dir
+if [ "$ign" -eq 1 ]
+then
+	if printf '%s\n' "${DIR##*/}"| grep -qE "$FILE_ERE"
+  then
+		echo "Regex can not cover root directory." >&2
+		exit 1
+	fi
+fi
+
+#counting directiories and files if there is not -i
+if [ "$ign" -eq 0 ]
+  then
+    perm_d=$(find "$DIR" -type d 2>/dev/null)     #checking for permission denied
+    if [ "$?" -ne 0 ]
+    then
+      echo "permission denied" >&2
+      exit 1
+    fi
+
+    ND=$(find "$DIR" -type d | grep -E "" -c)
+    if [ "$ND" -eq 0 ]
+      then
+        echo "Error, directories = 0" >&2
+        exit 1
+    fi
+
+    perm_f=$(find "$DIR" -type f 2>/dev/null)
+    if [ "$?" -ne 0 ]
+    then
+      echo "permission denied" >&2
+      exit 1
+    fi
+
+    NF=$(find "$DIR" -type f | grep -E "" -c)
+
+
+fi
+
+#counting directories and files if there is -i
+if [ "$ign" -eq 1 ]
+  then
+    perm_d=$(find "$DIR" -type d 2>/dev/null)
+    if [ "$?" -ne 0 ]
+    then
+      echo "permission denied" >&2
+      exit 1
+    fi
+
+    ND=$(find "$DIR" -type d -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)   #-execdir basename {} .po ';' - cut path, checking only foler/file NAME
+
+    if [ "$ND" -eq 0 ]
+      then
+        echo "Error, directories = 0" >&2
+        exit 1
+    fi
+
+    perm_f=$(find "$DIR" -type f 2>/dev/null)
+    if [ "$?" -ne 0 ]
+    then
+      echo "permission denied" >&2
+      exit 1
+    fi
+
+    NF=$(find "$DIR" -type f -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+
+fi
+
+#counting sizes of files if -i  is not set
+if [ "$ign" -eq 0 ]
+  then
+    size1=$(find "$DIR" -type f -size -100c | grep -E "" -c)
+    size2=$(find "$DIR" -type f -size -1024c | grep -E "" -c)
+    size2=$((size2 - size1))                        #needed to sub all lower categories, because upper category contains lowers as well
+    size3=$(find "$DIR" -type f -size -10240c | grep -E "" -c)
+    size3=$((size3 - size2 - size1))
+    size4=$(find "$DIR" -type f -size -102400c | grep -E "" -c)
+    size4=$((size4 - size3 - size2 - size1))
+    size5=$(find "$DIR" -type f -size -1048576c | grep -E "" -c)
+    size5=$((size5 - size4 - size3 - size2 - size1))
+    size6=$(find "$DIR" -type f -size -10485760c | grep -E "" -c)
+    size6=$((size6 - size5 - size4 - size3 - size2 - size1))
+    size7=$(find "$DIR" -type f -size -104857600c | grep -E "" -c)
+    size7=$((size7 - size6 - size5 - size4 - size3 - size2 - size1))
+    size8=$(find "$DIR" -type f -size -1073741824c | grep -E "" -c)
+    size8=$((size8 - size7 - size6 - size5 - size4 - size3 - size2 - size1))
+    size9=$(find "$DIR" -type f -size +1073741824c | grep -E "" -c) #should count more than 1 GiB ..no need to substract anything
+fi
+
+#counting sizes of files if -i is set
+if [ "$ign" -eq 1 ]
+  then
+    size1=$(find "$DIR" -type f -size -100c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+    size2=$(find "$DIR" -type f -size -1024c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+    size2=$((size2 - size1))
+    size3=$(find "$DIR" -type f -size -10240c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+    size3=$((size3 - size2 - size1))
+    size4=$(find "$DIR" -type f -size -102400c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+    size4=$((size4 - size3 - size2 - size1))
+    size5=$(find "$DIR" -type f -size -1048576c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+    size5=$((size5 - size4 - size3 - size2 - size1))
+    size6=$(find "$DIR" -type f -size -10485760c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+    size6=$((size6 - size5 - size4 - size3 - size2 - size1))
+    size7=$(find "$DIR" -type f -size -104857600c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+    size7=$((size7 - size6 - size5 - size4 - size3 - size2 - size1))
+    size8=$(find "$DIR" -type f -size -1073741824c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+    size8=$((size8 - size7 - size6 - size5 - size4 - size3 - size2 - size1))
+    size9=$(find "$DIR" -type f -size +1073741824c -execdir basename {} .po ';'| grep -v -E "$FILE_ERE" -c)
+fi
+
+echo "Root directory: $DIR"
+echo "Directories: $ND"
+echo "All files: $NF"
+echo "File size histogram:"
+
+#finding out the highest size for -n
+highest=$size1
+
+if [ "$size2" -gt "$highest" ]
+then
+  highest=$size2
+fi
+
+if [ "$size3" -gt "$highest" ]
+then
+  highest=$size3
+fi
+
+if [ "$size4" -gt "$highest" ]
+then
+  highest=$size4
+fi
+
+if [ "$size5" -gt "$highest" ]
+then
+  highest=$size5
+fi
+
+if [ "$size6" -gt "$highest" ]
+then
+  highest=$size6
+fi
+
+if [ "$size7" -gt "$highest" ]
+then
+  highest=$size7
+fi
+
+if [ "$size8" -gt "$highest" ]
+then
+  highest=$size8
+fi
+
+if [ "$size9" -gt "$highest" ]
+then
+  highest=$size9
+fi
+
+#setting coefficient if -n is set
+if [ "$nor" -eq 1 ]
+then
+  cols=67 #79-12
+  if [ -t 1 ]
+  then
+    cols=$(tput cols)
+    cols=$((cols - 13))
+  fi
+
+  if [ "$highest" -ne 0 ]
+  then
+    if [ "$highest" -gt "$cols" ]
+    then
+      size1=$((size1 * cols / highest))
+      size2=$((size2 * cols / highest))
+      size3=$((size3 * cols / highest))
+      size4=$((size4 * cols / highest))
+      size5=$((size5 * cols / highest))
+      size6=$((size6 * cols / highest))
+      size7=$((size7 * cols / highest))
+      size8=$((size8 * cols / highest))
+      size9=$((size9 * cols / highest))
+    fi
+  fi
+fi
+
+#printing histogram if -n is not set
+  printf "  <100 B  : "
+
+  if [ "$size1" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size1")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
+
+  printf "  <1 KiB  : "
+
+  if [ "$size2" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size2")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
+
+  printf "  <10 KiB : "
+
+  if [ "$size3" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size3")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
+
+  printf "  <100 KiB: "
+
+  if [ "$size4" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size4")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
+
+  printf "  <1 MiB  : "
+
+  if [ "$size5" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size5")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
+
+  printf "  <10 MiB : "
+
+  if [ "$size6" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size6")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
+
+  printf "  <100 MiB: "
+
+  if [ "$size7" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size7")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
+
+  printf "  <1 GiB  : "
+
+  if [ "$size8" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size8")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
+
+  printf "  >=1 GiB : "
+
+  if [ "$size9" -gt 0 ]
+    then
+      for i in $(seq 1 1 "$size9")
+      do
+        printf "#"
+      done
+  fi
+
+  printf "\n"
